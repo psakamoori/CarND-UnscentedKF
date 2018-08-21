@@ -25,10 +25,10 @@ UKF::UKF() {
   P_ = MatrixXd(5, 5);
 
   // Process noise standard deviation longitudinal acceleration in m/s^2
-  std_a_ = 30;
+  std_a_ = 1.5;
 
   // Process noise standard deviation yaw acceleration in rad/s^2
-  std_yawdd_ = 30;
+  std_yawdd_ = 0.5;
   
   //DO NOT MODIFY measurement noise values below these are provided by the sensor manufacturer.
   // Laser measurement noise standard deviation position1 in m
@@ -94,12 +94,10 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
 
        /* Initilization of State Parameters and Covariance Matrix */
        if( !is_initialized_) {
-         // Initial Measurment
-         x_ << 1, 1, 1, 1, 0.1;
 
          // Covariane Matrix
-         P_ << 0.15, 0, 0, 0, 0,
-               0, 0.15, 0, 0, 0,
+         P_ << 1, 0, 0, 0, 0,
+               0, 1, 0, 0, 0,
                0, 0, 1, 0, 0,
                0, 0, 0, 1, 0,
                0, 0, 0, 0, 1;
@@ -109,15 +107,23 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
 
          // Reading initial position of the vehicle
          if(meas_package.sensor_type_ ==  MeasurementPackage::LASER && use_laser_) {
-            x_(0) = meas_package.raw_measurements_(0);
-            x_(1) = meas_package.raw_measurements_(1);
+            x_(0) = meas_package.raw_measurements_[0];
+            x_(1) = meas_package.raw_measurements_[1];
+            x_(2) = 0;
+            x_(3) = 0;
+            x_(4) = 0;
          } else if(meas_package.sensor_type_ == MeasurementPackage::RADAR && use_radar_) {
            // Polar to Cartesian coordinates conversion
-           float ro = meas_package.raw_measurements_(0);
-           float phi = meas_package.raw_measurements_(1);
-           float ro_dot = meas_package.raw_measurements_(2);
+           float ro = meas_package.raw_measurements_[0];
+           float phi = meas_package.raw_measurements_[1];
+           float ro_dot = meas_package.raw_measurements_[2];
            x_(0) = ro * cos(phi);
            x_(1) = ro * sin(phi);
+           float vx = ro_dot * cos(phi);
+           float vy = ro_dot * sin(phi);
+           x_(2) = sqrt(vx*vx + vy*vy);
+           x_(3) = 0;
+           x_(4) = 0;
          }
          is_initialized_ = true;
          return;
@@ -158,9 +164,6 @@ void UKF::Prediction(double delta_t) {
   // Calculate Sqrt of P
   MatrixXd A = P_.llt().matrixL();
 
-  // Lambda for non-agumented Sigma Points
-  lambda_ = 3 - n_x_;
-  
   //Set first Col of Sigma Points
   Xsig.col(0) = x_;
 
@@ -181,9 +184,6 @@ void UKF::Prediction(double delta_t) {
   // Sigma Point Matrix
   MatrixXd Xsig_aug = MatrixXd(n_aug_, 2 * n_aug_ + 1);
 
-  // Lambda for Agumented Sigma Points
-  lambda_ = 3 - n_aug_;
-
   // Mean State
   x_aug.head(5) = x_;
   x_aug(5) = 0;  
@@ -191,7 +191,7 @@ void UKF::Prediction(double delta_t) {
 
   // Covariance Matrix
   P_aug.fill(0.0);
-  P_aug.topLeftCorner(5, 5) = P_;
+  P_aug.topLeftCorner(n_x_, n_x_) = P_;
   P_aug(5, 5) = std_a_ * std_a_;
   P_aug(6, 6) = std_yawdd_ * std_yawdd_;
 
@@ -221,7 +221,7 @@ void UKF::Prediction(double delta_t) {
     double px_pred, py_pred;
     if(fabs(yawd) > 0.001) {
      px_pred = p_x + v / yawd * (sin(yaw + yawd * delta_t) - sin(yaw));
-     py_pred = p_y + v / yawd * (cos(yaw + yawd * delta_t));
+     py_pred = p_y + v / yawd * (cos(yaw) - cos(yaw + yawd * delta_t));
     } else {
      px_pred = p_x + v * delta_t * cos(yaw);
      py_pred = p_y + v * delta_t * sin(yaw);
@@ -229,7 +229,7 @@ void UKF::Prediction(double delta_t) {
 
    double v_pred, yaw_pred, yawd_pred;
    v_pred = v;
-   yaw_pred - yaw + yawd * delta_t;
+   yaw_pred = yaw + yawd * delta_t;
    yawd_pred = yawd;
 
    // Adding noise parameter
@@ -243,7 +243,7 @@ void UKF::Prediction(double delta_t) {
    // Predicted Sigma Points
    Xsig_pred_(0, i) = px_pred;
    Xsig_pred_(1, i) = py_pred;
-   Xsig_pred_(2, i) = py_pred;
+   Xsig_pred_(2, i) = v_pred;
    Xsig_pred_(3, i) = yaw_pred;
    Xsig_pred_(4, i) = yawd_pred;
   }
